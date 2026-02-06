@@ -1,7 +1,7 @@
 export default {
   async fetch(request, env) {
     // لینک RAW فایل sub_link.txt خودت را اینجا بگذار
-    const githubUrl = "لینک_RAW_گیت_هاب_شما";
+    const githubUrl = "https://raw.githubusercontent.com/jtg79/MyConfigServer/refs/heads/main/sub_link.txt";
     
     const response = await fetch(githubUrl);
     const content = await response.text();
