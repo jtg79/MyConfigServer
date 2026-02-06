@@ -19,27 +19,25 @@ def get_config_identity(link):
     return None
 
 def collect():
-    # خواندن ۷ کانال اصلی از فایل
+    # خواندن کانال‌های منتخب از فایل
     try:
         with open('channels.txt', 'r') as f:
             channels = [line.strip() for line in f if line.strip()]
     except: return
 
     all_raw_data = [] 
-    # پترن دقیق برای استخراج پروتکل‌های باکیفیت
     pattern = r'vless://[^\s<>"]+|trojan://[^\s<>"]+|hy2://[^\s<>"]+|hysteria2://[^\s<>"]+'
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
 
     for ch in channels:
         try:
             clean_ch = ch.replace('@', '').strip()
-            # فقط صفحه اول هر کانال را می‌خوانیم (برای سرعت و تازگی ۵ تای آخر)
             r = requests.get(f"https://t.me/s/{clean_ch}", headers=headers, timeout=15)
             if r.status_code == 200:
                 messages = r.text.split('<div class="tgme_widget_message_wrap')
                 
                 channel_configs = []
-                # بررسی پیام‌ها از جدید به قدیم
+                # بررسی پیام‌ها از جدید به قدیم (معکوس)
                 for msg in reversed(messages):
                     time_match = re.search(r'datetime="([^"]+)"', msg)
                     if time_match:
@@ -56,17 +54,18 @@ def collect():
                                     'channel': clean_ch
                                 })
                     
-                    # به محض اینکه ۵ کانفیگ برای این کانال پیدا شد، برو سراغ کانال بعدی
-                    if len(channel_configs) >= 5:
+                    # حالا تا ۱۵ کانفیگ آخر هر کانال را جمع‌آوری می‌کنیم
+                    if len(channel_configs) >= 15:
                         break
                 
                 all_raw_data.extend(channel_configs)
+            time.sleep(0.5) # وقفه برای جلوگیری از بلاک شدن توسط تلگرام
         except: continue
 
-    # ۱. مرتب‌سازی بر اساس زمان (قدیمی به جدید) برای حفظ حق انتشار
+    # ۱. مرتب‌سازی زمانی (قدیمی به جدید)
     all_raw_data.sort(key=lambda x: x['time'])
 
-    # ۲. شناسایی اولین منتشرکننده و شمارش تکرار
+    # ۲. شناسایی صاحب اصلی و شمارش تکرار
     first_publishers = {} 
     occurrence_count = {}
     for item in all_raw_data:
@@ -91,7 +90,7 @@ def collect():
             processed_ids.add(c_id)
             count = occurrence_count[c_id]
             
-            # برچسب‌گذاری بر اساس منبع و تعداد تکرار
+            # برچسب‌گذاری با تعداد تکرار
             if count > 1:
                 tag = f"@{item['channel']}_Verified({count})"
             else:
@@ -102,7 +101,6 @@ def collect():
 
     if not final_configs: return
     
-    # تبدیل کل لیست به Base64
     final_text = "\n".join(final_configs)
     base64_string = base64.b64encode(final_text.encode("utf-8")).decode("ascii")
     
