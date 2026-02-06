@@ -5,8 +5,8 @@ import html
 import time
 from datetime import datetime
 
-# تنظیم تاریخ هدف (۲ فوریه ۲۰۲۶)
-TARGET_DATE = datetime(2026, 2, 2)
+# تنظیم تاریخ هدف روی ۲۶ ژانویه ۲۰۲۶ (۱۰ روز قبل)
+TARGET_DATE = datetime(2026, 1, 26)
 
 def get_config_identity(link):
     """استخراج شناسه هوشمند: UUID برای VLESS، و آدرس برای بقیه"""
@@ -39,7 +39,7 @@ def collect():
             next_before = None
             stop_channel = False
             
-            # حلقه ورق زدن تاریخچه تا رسیدن به ۲ فوریه
+            # حلقه ورق زدن تاریخچه تا رسیدن به ۲۶ ژانویه
             while not stop_channel:
                 url = f"{base_url}?before={next_before}" if next_before else base_url
                 r = requests.get(url, headers=headers, timeout=15)
@@ -58,7 +58,7 @@ def collect():
                         msg_time_str = time_match.group(1).split('+')[0]
                         msg_time = datetime.fromisoformat(msg_time_str)
                         
-                        # اگر پیام قدیمی‌تر از ۲ فوریه است، این کانال تمام است
+                        # اگر پیام قدیمی‌تر از ۲۶ ژانویه است، اسکن این کانال متوقف شود
                         if msg_time < TARGET_DATE:
                             stop_channel = True
                             continue
@@ -76,14 +76,14 @@ def collect():
                                 })
                 
                 if not next_before: break
-                time.sleep(0.1) # وقفه بسیار کوتاه چون تست پورت نداریم
+                time.sleep(0.1) 
                 
         except: continue
 
-    # ۱. مرتب‌سازی زمانی (قدیمی‌ترین اول)
+    # ۱. مرتب‌سازی زمانی (از قدیمی‌ترین به جدیدترین)
     all_raw_data.sort(key=lambda x: x['time'])
 
-    # ۲. پیدا کردن صاحب اصلی و شمارش کپی‌ها
+    # ۲. پیدا کردن صاحب اصلی و شمارش تکرارها در کل بازه ۱۰ روزه
     first_publishers = {} 
     occurrence_count = {}
     for item in all_raw_data:
@@ -108,7 +108,7 @@ def collect():
             processed_ids.add(c_id)
             count = occurrence_count[c_id]
             
-            # برچسب‌گذاری بر اساس تعداد کپی
+            # برچسب‌گذاری: نام کانال + تعداد دفعات کپی شدن در ۱۰ روز اخیر
             if count > 1:
                 tag = f"@{item['channel']}_Verified({count})"
             else:
