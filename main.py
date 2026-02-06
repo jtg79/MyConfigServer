@@ -2,64 +2,67 @@ import requests
 import re
 import base64
 import html
+import socket
 from datetime import datetime
+
+# تابع تستر داخلی
+def is_port_open(link):
+    try:
+        server_info = re.search(r'@([^:/#?]+):(\d+)', link)
+        if server_info:
+            address = server_info.group(1)
+            port = int(server_info.group(2))
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(1.0)
+                return s.connect_ex((address, port)) == 0
+        return True 
+    except:
+        return False
 
 def collect():
     try:
         with open('channels.txt', 'r') as f:
             channels = [line.strip() for line in f if line.strip()]
-    except FileNotFoundError:
-        return
+    except: return
 
     configs = []
-    # الگوی سالم و بدون پرانتز شما
-    pattern = r'vless://[^\s<>"]+|vmess://[^\s<>"]+|trojan://[^\s<>"]+|ss://[^\s<>"]+|ssr://[^\s<>"]+|hy2://[^\s<>"]+|hysteria2://[^\s<>"]+'
     
-    # دریافت تاریخ امروز به فرمت تلگرام (مثلاً February 06)
-    today = datetime.now().strftime("%B %d")
+    # اصلاح شده: الگوی بدون پرانتز برای استخراج کامل لینک
+    pattern = r'vless://[^\s<>"]+|vmess://[^\s<>"]+|trojan://[^\s<>"]+|ss://[^\s<>"]+|ssr://[^\s<>"]+|hy2://[^\s<>"]+|hysteria2://[^\s<>"]+'
 
     for ch in channels:
         try:
             clean_ch = ch.replace('@', '').strip()
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            r = requests.get(f"https://t.me/s/{clean_ch}", headers=headers, timeout=15)
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            r = requests.get(f"https://t.me/s/{clean_ch}", headers=headers, timeout=20)
             
             if r.status_code == 200:
-                # جدا کردن پیام‌ها از هم برای بررسی تاریخ هر کدام
-                messages = r.text.split('<div class="tgme_widget_message_wrap')
+                content = html.unescape(r.text)
+                # استخراج لینک‌ها با الگوی اصلاح شده
+                found_links = re.findall(pattern, content)
                 
-                ch_configs = []
-                for msg in messages:
-                    # شرط اصلی: فقط اگر تاریخ امروز در متن پیام بود
-                    if today in msg:
-                        found = re.findall(pattern, html.unescape(msg))
-                        ch_configs.extend(found)
-                
-                # انتخاب حداکثر ۱۰ مورد آخر از کانفیگ‌های امروزِ این کانال
-                latest_today = ch_configs[-10:]
-                
-                for link in latest_today:
+                for link in found_links[-15:]:
                     clean_link = link.strip().split('<')[0].split('"')[0].split("'")[0]
-                    if "#" in clean_link:
-                        clean_link = clean_link.split("#")[0]
                     
-                    final_link = f"{clean_link}#@{clean_ch}"
-                    configs.append(final_link)
+                    if is_port_open(clean_link):
+                        if "#" in clean_link:
+                            clean_link = clean_link.split("#")[0]
+                        
+                        configs.append(f"{clean_link}#@{clean_ch}_Verified")
         except:
             continue
 
-    unique_configs = list(dict.fromkeys(configs))
-    
-    if not unique_configs:
-        # اگر هیچ کانفیگی پیدا نشد، فایل را خالی نمی‌کنیم تا اشتراک قبلی نپرد
-        print("هیچ کانفیگ جدیدی در ۶ ساعت اخیر یافت نشد.")
+    if not configs:
+        print("No configs found. Check pattern or channel content.")
         return
 
+    unique_configs = list(dict.fromkeys(configs))
     final_text = "\n".join(unique_configs)
     base64_string = base64.b64encode(final_text.encode("utf-8")).decode("ascii")
     
     with open('sub_link.txt', 'w') as f:
         f.write(base64_string)
+    print(f"Done! {len(unique_configs)} configs saved.")
 
 if __name__ == "__main__":
     collect()
