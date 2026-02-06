@@ -5,6 +5,23 @@ import html
 import socket
 from datetime import datetime
 
+def get_config_identity(link):
+    """استخراج شناسه هوشمند: UUID برای VLESS، و آدرس برای بقیه"""
+    try:
+        if link.startswith('vless://'):
+            # استخراج محتوای بین // و @
+            match = re.search(r'vless://([^@]+)@', link)
+            if match:
+                return f"VLESS_ID:{match.group(1)}"
+        
+        # برای بقیه پروتکل‌ها: استخراج آدرس و پورت
+        if '@' in link:
+            server_part = link.split('@')[1].split('/')[0].split('?')[0].split('#')[0]
+            return f"SERVER_ID:{server_part}"
+    except:
+        return None
+    return None
+
 def is_port_open(link):
     try:
         if '@' in link:
@@ -14,7 +31,7 @@ def is_port_open(link):
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                     s.settimeout(1.0)
                     return s.connect_ex((address, int(port))) == 0
-        return False 
+        return False
     except:
         return False
 
@@ -25,7 +42,7 @@ def collect():
     except: return
 
     all_raw_data = [] 
-    # اصلاح پترن: بدون پرانتز برای استخراج کامل و دقیق لینک
+    # پترن فیکس شده و تخت
     pattern = r'vless://[^\s<>"]+|trojan://[^\s<>"]+|hy2://[^\s<>"]+|hysteria2://[^\s<>"]+'
 
     for ch in channels:
@@ -33,64 +50,62 @@ def collect():
             clean_ch = ch.replace('@', '').strip()
             r = requests.get(f"https://t.me/s/{clean_ch}", headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)
             if r.status_code == 200:
-                # جدا کردن پیام‌ها برای استخراج زمان هر کدام
                 messages = r.text.split('<div class="tgme_widget_message_wrap')
                 for msg in messages:
                     time_match = re.search(r'datetime="([^"]+)"', msg)
                     if time_match:
                         timestamp = time_match.group(1)
-                        # استخراج لینک‌ها از محتوای دکود شده پیام
                         decoded_msg = html.unescape(msg)
                         links = re.findall(pattern, decoded_msg)
                         
-                        # بررسی ۲۰ لینک آخر هر کانال
                         for link in links[-20:]:
-                            clean_link = link.strip().split('<')[0].split('"')[0].split("'")[0]
-                            main_content = clean_link.split('#')[0]
+                            full_link = link.strip().split('<')[0].split('"')[0].split("'")[0]
+                            config_id = get_config_identity(full_link)
                             
-                            all_raw_data.append({
-                                'main': main_content,
-                                'time': timestamp,
-                                'channel': clean_ch
-                            })
+                            if config_id:
+                                all_raw_data.append({
+                                    'id': config_id,
+                                    'full': full_link,
+                                    'time': timestamp,
+                                    'channel': clean_ch
+                                })
         except: continue
 
-    # ۱. مرتب‌سازی بر اساس زمان (از قدیمی به جدید)
+    # ۱. مرتب‌سازی زمانی (قدیمی‌ترین اول)
     all_raw_data.sort(key=lambda x: x['time'])
 
-    # ۲. پیدا کردن اولین منتشرکننده و آمار تکرار
+    # ۲. تحلیل کپی‌رایت کانال‌ها
     first_publishers = {} 
-    content_occurrence_count = {}
+    occurrence_count = {}
 
     for item in all_raw_data:
-        content = item['main']
-        content_occurrence_count[content] = content_occurrence_count.get(content, 0) + 1
-        if content not in first_publishers:
-            first_publishers[content] = item['channel']
+        c_id = item['id']
+        occurrence_count[c_id] = occurrence_count.get(c_id, 0) + 1
+        if c_id not in first_publishers:
+            first_publishers[c_id] = item['channel']
 
     final_configs = []
-    processed_for_output = set()
+    processed_ids = set()
 
-    # ۳. فیلتر نهایی: فقط اولین نسخه از هر محتوا
+    # ۳. فیلتر نهایی و خروجی
     for item in all_raw_data:
-        content = item['main']
-        
-        # شرط: فقط اگر این کانال اولین منتشرکننده باشد و قبلاً این محتوا را خروجی نداده باشیم
-        if content not in processed_for_output and item['channel'] == first_publishers[content]:
+        c_id = item['id']
+        if c_id not in processed_ids and item['channel'] == first_publishers[c_id]:
             
+            full_link = item['full']
             # فیلتر امنیتی Vless
-            if "vless" in content and "security=tls" not in content and "security=reality" not in content:
+            if "vless" in full_link and not any(s in full_link for s in ["security=tls", "security=reality"]):
                 continue
             
-            # تست پورت
-            if is_port_open(content):
-                processed_for_output.add(content)
+            if is_port_open(full_link):
+                processed_ids.add(c_id)
                 
-                # درج Verified فقط برای منبع اصلی در صورت وجود کپی
-                is_copied = content_occurrence_count[content] > 1
+                # برچسب Verified برای منابعی که کپی شده‌اند
+                is_copied = occurrence_count[c_id] > 1
                 tag = f"@{item['channel']}_Verified" if is_copied else f"@{item['channel']}"
                 
-                final_configs.append(f"{content}#{tag}")
+                base_link = full_link.split('#')[0]
+                final_configs.append(f"{base_link}#{tag}")
 
     if not final_configs: return
 
