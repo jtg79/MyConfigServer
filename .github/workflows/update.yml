@@ -1,32 +1,31 @@
-name: Auto Update Configs
-
+name: Update Sub
 on:
   schedule:
-    - cron: '0 */6 * * *' # اجرای خودکار هر ۶ ساعت
-  workflow_dispatch: # اجازه اجرای دستی برای تست
+    - cron: '0 * * * *' # اجرای دقیق سر هر ساعت
+  workflow_dispatch: # امکان اجرای دستی
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
+      - name: Checkout Code
         uses: actions/checkout@v3
 
-      - name: Setup Python
-        uses: actions/setup-python@v4
+      - name: Set up Python
+        uses: ambassadors/setup-python@v4
         with:
           python-version: '3.9'
 
-      - name: Install Libraries
-        run: pip install -r requirements.txt
+      - name: Install Dependencies
+        run: pip install requests
 
       - name: Run Script
         run: python main.py
 
-      - name: Save and Upload Changes
+      - name: Commit and Push
         run: |
           git config --global user.name "GitHub Action"
-          git config --global user.email "actions@github.com"
+          git config --global user.email "action@github.com"
           git add sub_link.txt
-          git commit -m "Configs updated: $(date)" || exit 0
+          git commit -m "Update sub: $(date)" || exit 0
           git push
