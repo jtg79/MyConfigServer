@@ -9,13 +9,13 @@ from datetime import datetime
 def is_port_open(link):
     try:
         if '@' in link:
-            after_at = link.split('@')[1]
-            server_info = re.search(r'([^:/#?]+):(\d+)', after_at)
-            if server_info:
-                address = server_info.group(1)
-                port = int(server_info.group(2))
+            # استخراج تمیز آدرس و پورت برای تست
+            server_part = link.split('@')[1].split('/')[0].split('?')[0].split('#')[0]
+            if ':' in server_part:
+                address, port = server_part.split(':')
+                port = int(port)
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    s.settimeout(1.2)
+                    s.settimeout(1.0)
                     return s.connect_ex((address, port)) == 0
         return False 
     except:
@@ -27,41 +27,70 @@ def collect():
             channels = [line.strip() for line in f if line.strip()]
     except: return
 
-    configs = []
-    
-    # الگوی تخت و اصلاح‌شده (بدون پرانتز برای استخراج کامل لینک)
+    all_data = [] 
+    # الگوی تخت و اصلاح‌شده برای استخراج کامل لینک
     pattern = r'vless://[^\s<>"]+|trojan://[^\s<>"]+|hy2://[^\s<>"]+|hysteria2://[^\s<>"]+'
 
     for ch in channels:
         try:
             clean_ch = ch.replace('@', '').strip()
-            headers = {'User-Agent': 'Mozilla/5.0'}
+            # هدر مرورگر برای جلوگیری از بلاک شدن توسط تلگرام
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
             r = requests.get(f"https://t.me/s/{clean_ch}", headers=headers, timeout=15)
             
             if r.status_code == 200:
-                content = html.unescape(r.text)
-                found_links = re.findall(pattern, content)
+                messages = r.text.split('<div class="tgme_widget_message_wrap')
+                for msg in messages:
+                    # استخراج زمان دقیق انتشار پیام
+                    time_match = re.search(r'<time [^>]*datetime="([^"]+)"', msg)
+                    if time_match:
+                        timestamp = time_match.group(1)
+                        links = re.findall(pattern, html.unescape(msg))
+                        for link in links:
+                            clean_link = link.strip().split('<')[0].split('"')[0]
+                            all_data.append({
+                                'main': clean_link.split('#')[0],
+                                'time': timestamp,
+                                'channel': clean_ch
+                            })
+        except: continue
+
+    # مرتب‌سازی بر اساس زمان (از قدیمی به جدید)
+    all_data.sort(key=lambda x: x['time'])
+
+    final_configs = []
+    seen_contents = {} # ذخیره محتوا و تعداد تکرار آن
+
+    # گام اول: شمارش تکرارها برای شناسایی کانفیگ‌های کپی شده
+    content_counts = {}
+    for item in all_data:
+        content_counts[item['main']] = content_counts.get(item['main'], 0) + 1
+
+    # گام دوم: انتخاب و برچسب‌گذاری
+    processed_contents = set()
+    for item in all_data:
+        config_content = item['main']
+        
+        if config_content not in processed_contents:
+            # فیلتر امنیتی Vless
+            if "vless" in config_content and "security=tls" not in config_content and "security=reality" not in config_content:
+                continue
+            
+            # تست زنده بودن سرور
+            if is_port_open(config_content):
+                processed_contents.add(config_content)
                 
-                # بررسی ۱۰ تای آخر هر کانال
-                for link in found_links[-10:]:
-                    clean_link = link.strip().split('<')[0].split('"')[0].split("'")[0]
-                    
-                    if is_port_open(clean_link):
-                        # شرط امنیتی برای Vless
-                        if "vless" in clean_link and "security=" not in clean_link:
-                            continue
-                            
-                        # حذف تگ‌های قبلی و اضافه کردن فقط نام کانال
-                        base_link = clean_link.split("#")[0] if "#" in clean_link else clean_link
-                        configs.append(f"{base_link}#@{clean_ch}")
-        except:
-            continue
+                # اگر این کانفیگ در بیش از یک کانال بوده، به قدیمی‌ترین نسخه Verified اضافه کن
+                if content_counts[config_content] > 1:
+                    tag = f"@{item['channel']}_Verified"
+                else:
+                    tag = f"@{item['channel']}"
+                
+                final_configs.append(f"{config_content}#{tag}")
 
-    if not configs:
-        return
+    if not final_configs: return
 
-    unique_configs = list(dict.fromkeys(configs))
-    final_text = "\n".join(unique_configs)
+    final_text = "\n".join(final_configs)
     base64_string = base64.b64encode(final_text.encode("utf-8")).decode("ascii")
     
     with open('sub_link.txt', 'w') as f:
