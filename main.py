@@ -5,85 +5,68 @@ import html
 import time
 from datetime import datetime
 
-# تنظیم تاریخ هدف روی ۲۶ ژانویه ۲۰۲۶ (۱۰ روز قبل)
-TARGET_DATE = datetime(2026, 1, 26)
-
 def get_config_identity(link):
-    """استخراج شناسه هوشمند: UUID برای VLESS، و آدرس برای بقیه"""
+    """استخراج شناسه هوشمند برای تشخیص تکراری‌ها"""
     try:
         if link.startswith('vless://'):
             match = re.search(r'vless://([^@]+)@', link)
             if match: return f"VLESS_ID:{match.group(1)}"
         
         if '@' in link:
-            # استخراج بخش آدرس:پورت
             server_part = link.split('@')[1].split('/')[0].split('?')[0].split('#')[0]
             return f"SERVER_ID:{server_part}"
     except: return None
     return None
 
 def collect():
+    # خواندن ۷ کانال اصلی از فایل
     try:
         with open('channels.txt', 'r') as f:
             channels = [line.strip() for line in f if line.strip()]
     except: return
 
     all_raw_data = [] 
+    # پترن دقیق برای استخراج پروتکل‌های باکیفیت
     pattern = r'vless://[^\s<>"]+|trojan://[^\s<>"]+|hy2://[^\s<>"]+|hysteria2://[^\s<>"]+'
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
 
     for ch in channels:
         try:
             clean_ch = ch.replace('@', '').strip()
-            base_url = f"https://t.me/s/{clean_ch}"
-            next_before = None
-            stop_channel = False
-            
-            # حلقه ورق زدن تاریخچه تا رسیدن به ۲۶ ژانویه
-            while not stop_channel:
-                url = f"{base_url}?before={next_before}" if next_before else base_url
-                r = requests.get(url, headers=headers, timeout=15)
-                if r.status_code != 200: break
-                
+            # فقط صفحه اول هر کانال را می‌خوانیم (برای سرعت و تازگی ۵ تای آخر)
+            r = requests.get(f"https://t.me/s/{clean_ch}", headers=headers, timeout=15)
+            if r.status_code == 200:
                 messages = r.text.split('<div class="tgme_widget_message_wrap')
-                if len(messages) <= 1: break
                 
-                # پیدا کردن آیدی پیام برای رفتن به صفحه قبل
-                id_match = re.search(r'data-post="[^/]*/(\d+)"', messages[1])
-                if id_match: next_before = id_match.group(1)
-
-                for msg in messages:
+                channel_configs = []
+                # بررسی پیام‌ها از جدید به قدیم
+                for msg in reversed(messages):
                     time_match = re.search(r'datetime="([^"]+)"', msg)
                     if time_match:
-                        msg_time_str = time_match.group(1).split('+')[0]
-                        msg_time = datetime.fromisoformat(msg_time_str)
-                        
-                        # اگر پیام قدیمی‌تر از ۲۶ ژانویه است، اسکن این کانال متوقف شود
-                        if msg_time < TARGET_DATE:
-                            stop_channel = True
-                            continue
-
+                        timestamp = time_match.group(1)
                         links = re.findall(pattern, html.unescape(msg))
                         for link in links:
                             full_link = link.strip().split('<')[0].split('"')[0].split("'")[0]
                             config_id = get_config_identity(full_link)
                             if config_id:
-                                all_raw_data.append({
+                                channel_configs.append({
                                     'id': config_id,
                                     'full': full_link,
-                                    'time': msg_time_str,
+                                    'time': timestamp,
                                     'channel': clean_ch
                                 })
+                    
+                    # به محض اینکه ۵ کانفیگ برای این کانال پیدا شد، برو سراغ کانال بعدی
+                    if len(channel_configs) >= 5:
+                        break
                 
-                if not next_before: break
-                time.sleep(0.1) 
-                
+                all_raw_data.extend(channel_configs)
         except: continue
 
-    # ۱. مرتب‌سازی زمانی (از قدیمی‌ترین به جدیدترین)
+    # ۱. مرتب‌سازی بر اساس زمان (قدیمی به جدید) برای حفظ حق انتشار
     all_raw_data.sort(key=lambda x: x['time'])
 
-    # ۲. پیدا کردن صاحب اصلی و شمارش تکرارها در کل بازه ۱۰ روزه
+    # ۲. شناسایی اولین منتشرکننده و شمارش تکرار
     first_publishers = {} 
     occurrence_count = {}
     for item in all_raw_data:
@@ -95,29 +78,31 @@ def collect():
     final_configs = []
     processed_ids = set()
 
-    # ۳. فیلتر نهایی بر اساس مالکیت زمانی
+    # ۳. فیلتر نهایی و ساخت لیست خروجی
     for item in all_raw_data:
         c_id = item['id']
         if c_id not in processed_ids and item['channel'] == first_publishers[c_id]:
             
             full_link = item['full']
-            # فیلتر امنیتی Vless (فقط TLS/Reality)
+            # فیلتر امنیتی Vless: فقط TLS یا Reality
             if "vless" in full_link and not any(s in full_link for s in ["security=tls", "security=reality"]):
                 continue
             
             processed_ids.add(c_id)
             count = occurrence_count[c_id]
             
-            # برچسب‌گذاری: نام کانال + تعداد دفعات کپی شدن در ۱۰ روز اخیر
+            # برچسب‌گذاری بر اساس منبع و تعداد تکرار
             if count > 1:
                 tag = f"@{item['channel']}_Verified({count})"
             else:
                 tag = f"@{item['channel']}"
             
-            final_configs.append(f"{full_link.split('#')[0]}#{tag}")
+            base_link = full_link.split('#')[0]
+            final_configs.append(f"{base_link}#{tag}")
 
     if not final_configs: return
     
+    # تبدیل کل لیست به Base64
     final_text = "\n".join(final_configs)
     base64_string = base64.b64encode(final_text.encode("utf-8")).decode("ascii")
     
