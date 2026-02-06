@@ -8,7 +8,7 @@ def collect():
         channels = [line.strip() for line in f if line.strip()]
     
     configs = []
-    # الگوی جامع برای تمام پروتکل‌ها
+    # الگوی دقیق برای پروتکل‌ها
     pattern = r'(vless|vmess|trojan|ss|ssr|tuic|hysteria2|hysteria)://[^\s<>"]+'
 
     for ch in channels:
@@ -19,14 +19,8 @@ def collect():
                 decoded_text = html.unescape(r.text)
                 found = re.findall(pattern, decoded_text)
                 for link in found:
-                    # تمیزکاری دقیق لینک از کاراکترهای اضافی
                     clean_link = link.strip().split('<')[0].split('"')[0].split("'")[0]
-                    # حذف Remarkهای قبلی و اضافه کردن Remark تمیز
-                    if "#" in clean_link:
-                        clean_link = clean_link.split("#")[0]
-                    
-                    final_link = f"{clean_link}#{ch}"
-                    configs.append(final_link)
+                    configs.append(clean_link)
         except:
             continue
 
@@ -35,14 +29,19 @@ def collect():
     if not unique_configs:
         return
 
-    # ایجاد متن نهایی: هر لینک در یک خط کاملاً مجزا
-    final_text = "\n".join(unique_configs) + "\n"
+    # ۱. ترکیب لینک‌ها با اینتر (بدون هیچ فاصله اضافی)
+    final_text = "\n".join(unique_configs)
     
-    # تبدیل به Base64 استاندارد بدون کاراکترهای مزاحم
-    encoded = base64.b64encode(final_text.encode('utf-8')).decode('utf-8')
+    # ۲. تبدیل به بایت و سپس انکود کردن
+    sample_string_bytes = final_text.encode("ascii", "ignore")
+    base64_bytes = base64.b64encode(sample_string_bytes)
+    base64_string = base64_bytes.decode("ascii")
     
+    # ۳. حذف هرگونه کاراکتر اینتر یا فاصله از کل متن Base64 (بسیار مهم برای v2rayN)
+    base64_string = base64_string.replace("\n", "").replace("\r", "").replace(" ", "")
+
     with open('sub_link.txt', 'w') as f:
-        f.write(encoded)
+        f.write(base64_string)
 
 if __name__ == "__main__":
     collect()
