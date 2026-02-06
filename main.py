@@ -5,18 +5,15 @@ import html
 import socket
 from datetime import datetime
 
-# تابع تستر داخلی برای بررسی زنده بودن پورت سرور
 def is_port_open(link):
     try:
         if '@' in link:
-            # استخراج تمیز آدرس و پورت برای تست
             server_part = link.split('@')[1].split('/')[0].split('?')[0].split('#')[0]
             if ':' in server_part:
                 address, port = server_part.split(':')
-                port = int(port)
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                     s.settimeout(1.0)
-                    return s.connect_ex((address, port)) == 0
+                    return s.connect_ex((address, int(port))) == 0
         return False 
     except:
         return False
@@ -27,66 +24,73 @@ def collect():
             channels = [line.strip() for line in f if line.strip()]
     except: return
 
-    all_data = [] 
-    # الگوی تخت و اصلاح‌شده برای استخراج کامل لینک
+    all_raw_data = [] 
+    # اصلاح پترن: بدون پرانتز برای استخراج کامل و دقیق لینک
     pattern = r'vless://[^\s<>"]+|trojan://[^\s<>"]+|hy2://[^\s<>"]+|hysteria2://[^\s<>"]+'
 
     for ch in channels:
         try:
             clean_ch = ch.replace('@', '').strip()
-            # هدر مرورگر برای جلوگیری از بلاک شدن توسط تلگرام
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-            r = requests.get(f"https://t.me/s/{clean_ch}", headers=headers, timeout=15)
-            
+            r = requests.get(f"https://t.me/s/{clean_ch}", headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)
             if r.status_code == 200:
+                # جدا کردن پیام‌ها برای استخراج زمان هر کدام
                 messages = r.text.split('<div class="tgme_widget_message_wrap')
                 for msg in messages:
-                    # استخراج زمان دقیق انتشار پیام
-                    time_match = re.search(r'<time [^>]*datetime="([^"]+)"', msg)
+                    time_match = re.search(r'datetime="([^"]+)"', msg)
                     if time_match:
                         timestamp = time_match.group(1)
-                        links = re.findall(pattern, html.unescape(msg))
-                        for link in links:
-                            clean_link = link.strip().split('<')[0].split('"')[0]
-                            all_data.append({
-                                'main': clean_link.split('#')[0],
+                        # استخراج لینک‌ها از محتوای دکود شده پیام
+                        decoded_msg = html.unescape(msg)
+                        links = re.findall(pattern, decoded_msg)
+                        
+                        # بررسی ۲۰ لینک آخر هر کانال
+                        for link in links[-20:]:
+                            clean_link = link.strip().split('<')[0].split('"')[0].split("'")[0]
+                            main_content = clean_link.split('#')[0]
+                            
+                            all_raw_data.append({
+                                'main': main_content,
                                 'time': timestamp,
                                 'channel': clean_ch
                             })
         except: continue
 
-    # مرتب‌سازی بر اساس زمان (از قدیمی به جدید)
-    all_data.sort(key=lambda x: x['time'])
+    # ۱. مرتب‌سازی بر اساس زمان (از قدیمی به جدید)
+    all_raw_data.sort(key=lambda x: x['time'])
+
+    # ۲. پیدا کردن اولین منتشرکننده و آمار تکرار
+    first_publishers = {} 
+    content_occurrence_count = {}
+
+    for item in all_raw_data:
+        content = item['main']
+        content_occurrence_count[content] = content_occurrence_count.get(content, 0) + 1
+        if content not in first_publishers:
+            first_publishers[content] = item['channel']
 
     final_configs = []
-    seen_contents = {} # ذخیره محتوا و تعداد تکرار آن
+    processed_for_output = set()
 
-    # گام اول: شمارش تکرارها برای شناسایی کانفیگ‌های کپی شده
-    content_counts = {}
-    for item in all_data:
-        content_counts[item['main']] = content_counts.get(item['main'], 0) + 1
-
-    # گام دوم: انتخاب و برچسب‌گذاری
-    processed_contents = set()
-    for item in all_data:
-        config_content = item['main']
+    # ۳. فیلتر نهایی: فقط اولین نسخه از هر محتوا
+    for item in all_raw_data:
+        content = item['main']
         
-        if config_content not in processed_contents:
+        # شرط: فقط اگر این کانال اولین منتشرکننده باشد و قبلاً این محتوا را خروجی نداده باشیم
+        if content not in processed_for_output and item['channel'] == first_publishers[content]:
+            
             # فیلتر امنیتی Vless
-            if "vless" in config_content and "security=tls" not in config_content and "security=reality" not in config_content:
+            if "vless" in content and "security=tls" not in content and "security=reality" not in content:
                 continue
             
-            # تست زنده بودن سرور
-            if is_port_open(config_content):
-                processed_contents.add(config_content)
+            # تست پورت
+            if is_port_open(content):
+                processed_for_output.add(content)
                 
-                # اگر این کانفیگ در بیش از یک کانال بوده، به قدیمی‌ترین نسخه Verified اضافه کن
-                if content_counts[config_content] > 1:
-                    tag = f"@{item['channel']}_Verified"
-                else:
-                    tag = f"@{item['channel']}"
+                # درج Verified فقط برای منبع اصلی در صورت وجود کپی
+                is_copied = content_occurrence_count[content] > 1
+                tag = f"@{item['channel']}_Verified" if is_copied else f"@{item['channel']}"
                 
-                final_configs.append(f"{config_content}#{tag}")
+                final_configs.append(f"{content}#{tag}")
 
     if not final_configs: return
 
