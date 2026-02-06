@@ -1,5 +1,6 @@
 lebertad
 Farah_VPN
+V2ray_Alpha
 config_v2rayy
 CUSTOMVPNSERVER
 erfanandroid
@@ -27,7 +28,6 @@ flyv2ray
 Outline_Vpn
 ALIXTSO
 freedomofinfor
-V2rayAlpha
 config_proxy
 VayNora
 shankamil
@@ -44,3 +44,12 @@ vpnplusee_free
 Capoit
 Eag1e_YT
 Oreyzon
+v2rayng_org
+v2ray_configs_pool
+FreeVlessVPN
+v2rayNG_VPNo
+PrivateSub
+Configs_V2ray
+v2ray_outline_config
+ShadowSocks_X
+V2ray_VLESS_VMESS
