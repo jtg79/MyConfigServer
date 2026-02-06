@@ -5,17 +5,24 @@ import html
 import socket
 from datetime import datetime
 
-# تابع تستر داخلی
 def is_port_open(link):
     try:
-        server_info = re.search(r'@([^:/#?]+):(\d+)', link)
-        if server_info:
-            address = server_info.group(1)
-            port = int(server_info.group(2))
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(1.0)
-                return s.connect_ex((address, port)) == 0
-        return True 
+        # استخراج هوشمند آدرس و پورت برای انواع پروتکل‌ها
+        # پیدا کردن بخش بعد از @ و قبل از پورت (:)
+        if '@' in link:
+            # جدا کردن بخش بعد از @
+            after_at = link.split('@')[1]
+            # جدا کردن آدرس و پورت قبل از رسیدن به پارامترهای دیگر (? یا #)
+            server_info = re.search(r'([^:/#?]+):(\d+)', after_at)
+            
+            if server_info:
+                address = server_info.group(1)
+                port = int(server_info.group(2))
+                
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.settimeout(1.2)
+                    return s.connect_ex((address, port)) == 0
+        return False 
     except:
         return False
 
@@ -26,34 +33,32 @@ def collect():
     except: return
 
     configs = []
-    
-    # اصلاح شده: الگوی بدون پرانتز برای استخراج کامل لینک
+    # الگوی تخت و بدون پرانتز برای استخراج کامل لینک
     pattern = r'vless://[^\s<>"]+|vmess://[^\s<>"]+|trojan://[^\s<>"]+|ss://[^\s<>"]+|ssr://[^\s<>"]+|hy2://[^\s<>"]+|hysteria2://[^\s<>"]+'
 
     for ch in channels:
         try:
             clean_ch = ch.replace('@', '').strip()
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-            r = requests.get(f"https://t.me/s/{clean_ch}", headers=headers, timeout=20)
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            r = requests.get(f"https://t.me/s/{clean_ch}", headers=headers, timeout=15)
             
             if r.status_code == 200:
                 content = html.unescape(r.text)
-                # استخراج لینک‌ها با الگوی اصلاح شده
                 found_links = re.findall(pattern, content)
                 
-                for link in found_links[-15:]:
+                # بررسی ۲۰ مورد آخر برای هر کانال
+                for link in found_links[-20:]:
                     clean_link = link.strip().split('<')[0].split('"')[0].split("'")[0]
                     
+                    # تست پورت با دقت بالا
                     if is_port_open(clean_link):
-                        if "#" in clean_link:
-                            clean_link = clean_link.split("#")[0]
-                        
-                        configs.append(f"{clean_link}#@{clean_ch}_Verified")
+                        # تمیز کردن انتهای لینک برای نام‌گذاری
+                        base_link = clean_link.split("#")[0] if "#" in clean_link else clean_link
+                        configs.append(f"{base_link}#@{clean_ch}_Verified")
         except:
             continue
 
     if not configs:
-        print("No configs found. Check pattern or channel content.")
         return
 
     unique_configs = list(dict.fromkeys(configs))
@@ -62,7 +67,6 @@ def collect():
     
     with open('sub_link.txt', 'w') as f:
         f.write(base64_string)
-    print(f"Done! {len(unique_configs)} configs saved.")
 
 if __name__ == "__main__":
     collect()
