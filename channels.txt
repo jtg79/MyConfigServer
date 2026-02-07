@@ -1,6 +1,7 @@
 SOSkeyNET
 lebertad
 config_proxy
+oneclickvpnkeys
 v2rays_ha
 vpnplusee_free
 YamYamProxy
